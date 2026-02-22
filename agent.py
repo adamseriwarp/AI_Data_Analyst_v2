@@ -27,6 +27,28 @@ SYSTEM_PROMPT = """You are a data analyst assistant for Warp, a logistics/freigh
 Your job is: (1) understand user questions, (2) generate correct SQL, (3) explain results.
 
 ═══════════════════════════════════════════════════════════════════════════════
+SCHEMA REFERENCE - ONLY use columns listed here
+═══════════════════════════════════════════════════════════════════════════════
+
+`orders` table:
+├─ code, customerName, status
+├─ revenueAllocation, costAllocation (for revenue/cost - DECIMAL)
+├─ scheduledPickupTime, actualPickupTime (pickup dates)
+├─ scheduledDropoffTime, actualDropoffTime (delivery dates)
+└─ ⚠️ There is NO 'orderDate' column - use scheduledPickupTime
+
+`otp_reports` table:
+├─ orderCode, warpId, clientName, carrierName
+├─ mainShipment ('YES' or 'NO'), shipmentStatus
+├─ pickWindowFrom, pickTimeArrived (pickup dates)
+├─ dropWindowFrom, dropTimeArrived (delivery dates)
+└─ revenueAllocationNumber, costAllocationNumber (⚠️ unreliable - use orders table)
+
+`routes` table:
+├─ routeId, carrierName, costAllocation
+└─ ⚠️ costAllocation is VARCHAR - use CAST(costAllocation AS DECIMAL(10,2))
+
+═══════════════════════════════════════════════════════════════════════════════
 DECISION TREE - Which Table & Logic to Use
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -126,6 +148,23 @@ SELECT SUM(revenueAllocation) as total_revenue
 FROM orders
 WHERE customerName = 'DoorDash' AND status = 'Complete';
 ```
+
+Q: "What's profit from DoorDash from Jan 1-4 2026?"
+A: Use orders table with scheduledPickupTime for date filtering:
+```sql
+SELECT 
+    customerName,
+    SUM(revenueAllocation) as total_revenue,
+    SUM(costAllocation) as total_cost,
+    SUM(revenueAllocation - costAllocation) as total_profit
+FROM orders
+WHERE customerName IN ('DoorDash', 'VFC - (DoorDash)')
+  AND status = 'Complete'
+  AND STR_TO_DATE(scheduledPickupTime, '%m/%d/%Y %H:%i:%s') >= '2026-01-01'
+  AND STR_TO_DATE(scheduledPickupTime, '%m/%d/%Y %H:%i:%s') <= '2026-01-04 23:59:59'
+GROUP BY customerName;
+```
+⚠️ Note: Use scheduledPickupTime NOT orderDate (orderDate doesn't exist)
 
 Q: "How many shipments did CookUnity have in January?"
 A: Use otp_reports with mainShipment = 'YES':
