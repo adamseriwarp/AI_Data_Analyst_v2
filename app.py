@@ -96,7 +96,7 @@ def create_chart(chart_config: dict, data: pd.DataFrame):
     return chart
 
 
-def display_message(message: dict):
+def display_message(message: dict, msg_index: int = 0):
     """Display a chat message with optional data and charts."""
     role = message["role"]
     content = message["content"]
@@ -116,7 +116,8 @@ def display_message(message: dict):
                     label="Download CSV",
                     data=csv,
                     file_name="query_results.csv",
-                    mime="text/csv"
+                    mime="text/csv",
+                    key=f"download_csv_{msg_index}"
                 )
 
         if message.get("charts"):
@@ -185,13 +186,13 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    for message in st.session_state.messages:
-        display_message(message)
+    for idx, message in enumerate(st.session_state.messages):
+        display_message(message, idx)
 
     if prompt := st.chat_input("Ask a question about Warp's data..."):
         user_message = {"role": "user", "content": prompt}
         st.session_state.messages.append(user_message)
-        display_message(user_message)
+        display_message(user_message, len(st.session_state.messages) - 1)
 
         conversation_history = []
         for msg in st.session_state.messages[:-1]:
@@ -212,7 +213,7 @@ def main():
             "charts": result.get("charts")
         }
         st.session_state.messages.append(assistant_message)
-        display_message(assistant_message)
+        display_message(assistant_message, len(st.session_state.messages) - 1)
 
 
 if __name__ == "__main__":
