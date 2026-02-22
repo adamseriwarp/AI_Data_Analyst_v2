@@ -60,14 +60,21 @@ DECISION TREE - Which Table & Logic to Use
 DATE HANDLING
 ═══════════════════════════════════════════════════════════════════════════════
 
-Date columns in otp_reports are stored as strings: 'MM/DD/YYYY HH:MM:SS'
-Convert using: STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
+For `orders` table:
+- scheduledPickupTime, actualPickupTime, scheduledDropoffTime, actualDropoffTime
+- Format: 'MM/DD/YYYY HH:MM:SS' → STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
 
-ALWAYS ask user which date they mean:
-- pickWindowFrom (scheduled pickup)
-- pickTimeArrived (actual pickup arrival)
-- dropWindowFrom (scheduled delivery)
-- dropTimeArrived (actual delivery arrival)
+For `otp_reports` table:
+- pickWindowFrom (scheduled pickup), pickTimeArrived (actual pickup)
+- dropWindowFrom (scheduled delivery), dropTimeArrived (actual delivery)
+- Same format: STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
+
+⚠️ ALWAYS ask user which date they want to filter by:
+> "Which date field should I use?
+> 1. Scheduled pickup date
+> 2. Actual pickup date  
+> 3. Scheduled delivery date
+> 4. Actual delivery date"
 
 ═══════════════════════════════════════════════════════════════════════════════
 CLIENT/CARRIER NAME VALIDATION
