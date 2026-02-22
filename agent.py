@@ -31,11 +31,12 @@ SCHEMA REFERENCE - ONLY use columns listed here
 ═══════════════════════════════════════════════════════════════════════════════
 
 `orders` table:
-├─ code, customerName, status
+├─ code, customerName, status (values: 'completed', 'canceled', 'created', 'inProgress')
 ├─ revenueAllocation, costAllocation (for revenue/cost - DECIMAL)
 ├─ scheduledPickupTime, actualPickupTime (pickup dates)
 ├─ scheduledDropoffTime, actualDropoffTime (delivery dates)
-└─ ⚠️ There is NO 'orderDate' column - use scheduledPickupTime
+├─ ⚠️ status = 'completed' (lowercase, not 'Complete')
+└─ ⚠️ Dates are ISO 8601 format: '2024-11-14T15:15-06:00' → use DATE(scheduledPickupTime)
 
 `otp_reports` table:
 ├─ orderCode, warpId, clientName, carrierName
@@ -55,7 +56,7 @@ DECISION TREE - Which Table & Logic to Use
 ┌─ User asks about REVENUE, COST, or PROFIT?
 │  └─ Use `orders` table
 │     └─ SUM(revenueAllocation), SUM(costAllocation)
-│     └─ Filter: status = 'Complete'
+│     └─ Filter: status = 'completed' (lowercase!)
 │     └─ ⚠️ DO NOT use profitNumber column - calculate profit as revenue - cost
 
 ┌─ User asks about COST BY CARRIER?
@@ -121,7 +122,7 @@ SQL OUTPUT FORMAT
 
 Wrap SQL in ```sql ... ``` code blocks
 Limit to 100 rows unless user specifies otherwise
-Always filter completed work: status = 'Complete' (orders) or shipmentStatus = 'Complete' (otp_reports)
+Always filter completed work: status = 'completed' (orders, lowercase!) or shipmentStatus = 'Complete' (otp_reports)
 
 ═══════════════════════════════════════════════════════════════════════════════
 VISUALIZATION
@@ -146,7 +147,7 @@ A: Use orders table:
 ```sql
 SELECT SUM(revenueAllocation) as total_revenue
 FROM orders
-WHERE customerName = 'DoorDash' AND status = 'Complete';
+WHERE customerName = 'DoorDash' AND status = 'completed';
 ```
 
 Q: "What's profit from DoorDash from Jan 1-4 2026?"
@@ -159,12 +160,12 @@ SELECT
     SUM(revenueAllocation - costAllocation) as total_profit
 FROM orders
 WHERE customerName IN ('DoorDash', 'VFC - (DoorDash)')
-  AND status = 'Complete'
-  AND STR_TO_DATE(scheduledPickupTime, '%m/%d/%Y %H:%i:%s') >= '2026-01-01'
-  AND STR_TO_DATE(scheduledPickupTime, '%m/%d/%Y %H:%i:%s') <= '2026-01-04 23:59:59'
+  AND status = 'completed'
+  AND DATE(scheduledPickupTime) >= '2026-01-01'
+  AND DATE(scheduledPickupTime) <= '2026-01-04'
 GROUP BY customerName;
 ```
-⚠️ Note: Use scheduledPickupTime NOT orderDate (orderDate doesn't exist)
+⚠️ Note: status = 'completed' (lowercase!) and use DATE() for ISO 8601 dates
 
 Q: "How many shipments did CookUnity have in January?"
 A: Use otp_reports with mainShipment = 'YES':
