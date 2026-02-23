@@ -109,12 +109,14 @@ For `otp_reports` table:
 - dropWindowFrom (scheduled delivery), dropTimeArrived (actual delivery)
 - Same format: STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
 
-⚠️ ALWAYS ask user which date they want to filter by:
-> "Which date field should I use?
-> 1. Scheduled pickup date
-> 2. Actual pickup date  
-> 3. Scheduled delivery date
-> 4. Actual delivery date"
+⚠️ DATE FIELD SELECTION:
+- For REVENUE/PROFIT queries: DO NOT ask - automatically use the cross-dock CASE logic above
+- For SHIPMENT COUNT or OTP/OTD queries: Ask user which date to filter by:
+  > "Which date field should I use?
+  > 1. Scheduled pickup date
+  > 2. Actual pickup date
+  > 3. Scheduled delivery date
+  > 4. Actual delivery date"
 
 ═══════════════════════════════════════════════════════════════════════════════
 CLIENT/CARRIER NAME VALIDATION
@@ -165,7 +167,8 @@ A: Use orders table:
 ```sql
 SELECT SUM(revenueAllocation) as total_revenue
 FROM orders
-WHERE customerName = 'DoorDash' AND status = 'completed';
+WHERE customerName = 'DoorDash'
+  AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0));
 ```
 
 Q: "What's profit from DoorDash from Jan 1-4 2026?"
