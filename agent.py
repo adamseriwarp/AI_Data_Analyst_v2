@@ -34,6 +34,7 @@ SCHEMA REFERENCE - ONLY use columns listed here
 ├─ code, customerName, status (values: 'completed', 'canceled', 'created', 'inProgress')
 ├─ revenueAllocation, costAllocation (for revenue/cost - DECIMAL)
 ├─ accessorialRevenue (for TONU identification - DECIMAL)
+├─ isCrossDock (1 = cross-dock, 0 = not cross-dock, NULL = unknown)
 ├─ scheduledPickupTime, actualPickupTime (pickup dates)
 ├─ scheduledDropoffTime, actualDropoffTime (delivery dates)
 ├─ ⚠️ status = 'completed' (lowercase, not 'Complete')
@@ -60,7 +61,9 @@ DECISION TREE - Which Table & Logic to Use
 │     └─ Filter: status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)
 │     └─ ⚠️ The second condition captures TONU (Truck Ordered Not Used) charges
 │     └─ ⚠️ DO NOT use profitNumber column - calculate profit as revenue - cost
-│     └─ ⚠️ For date filtering, use scheduledDropoffTime (delivery date) to match company reports
+│     └─ ⚠️ For date filtering, use delivery date CASE logic:
+│        - If isCrossDock = 0 AND actualDropoffTime exists → use actualDropoffTime
+│        - Otherwise → use scheduledDropoffTime
 
 ┌─ User asks about COST BY CARRIER?
 │  └─ Use `routes` table
@@ -90,7 +93,16 @@ For `orders` table:
 - scheduledPickupTime, actualPickupTime, scheduledDropoffTime, actualDropoffTime
 - Format: ISO 8601 (e.g., '2024-11-14T15:15-06:00') → use SUBSTRING(field, 1, 10) for date comparisons
 - ⚠️ DO NOT use DATE() - it converts to UTC and shifts dates incorrectly!
-- ⚠️ For revenue/profit queries, use scheduledDropoffTime (scheduled delivery date)
+- ⚠️ For revenue/profit queries, use the DELIVERY DATE determined by this logic:
+  - If isCrossDock = 1 OR isCrossDock IS NULL → use scheduledDropoffTime
+  - If isCrossDock = 0 AND actualDropoffTime IS NOT NULL → use actualDropoffTime
+  - Otherwise → use scheduledDropoffTime
+- Use this CASE expression for the delivery date filter:
+  CASE
+    WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+      THEN SUBSTRING(actualDropoffTime, 1, 10)
+    ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+  END
 
 For `otp_reports` table:
 - pickWindowFrom (scheduled pickup), pickTimeArrived (actual pickup)
@@ -157,7 +169,7 @@ WHERE customerName = 'DoorDash' AND status = 'completed';
 ```
 
 Q: "What's profit from DoorDash from Jan 1-4 2026?"
-A: Use orders table with scheduledDropoffTime (delivery date) for date filtering:
+A: Use orders table with delivery date logic (cross-dock uses scheduled, non-cross-dock uses actual):
 ```sql
 SELECT
     customerName,
@@ -167,12 +179,24 @@ SELECT
 FROM orders
 WHERE customerName IN ('DoorDash', 'VFC - (DoorDash)')
   AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0))
-  AND SUBSTRING(scheduledDropoffTime, 1, 10) >= '2026-01-01'
-  AND SUBSTRING(scheduledDropoffTime, 1, 10) <= '2026-01-04'
+  AND (
+    CASE
+      WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+        THEN SUBSTRING(actualDropoffTime, 1, 10)
+      ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+    END
+  ) >= '2026-01-01'
+  AND (
+    CASE
+      WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+        THEN SUBSTRING(actualDropoffTime, 1, 10)
+      ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+    END
+  ) <= '2026-01-04'
 GROUP BY customerName;
 ```
 ⚠️ Note: The filter includes TONU charges (canceled orders with accessorialRevenue > 0)
-⚠️ Note: Use SUBSTRING(field, 1, 10) for ISO 8601 dates (NOT DATE() - it converts to UTC incorrectly)
+⚠️ Note: Delivery date logic: cross-dock orders use scheduledDropoffTime, non-cross-dock use actualDropoffTime
 
 Q: "How many shipments did CookUnity have in January?"
 A: Use otp_reports with mainShipment = 'YES':
