@@ -126,7 +126,8 @@ SQL OUTPUT FORMAT
 
 Wrap SQL in ```sql ... ``` code blocks
 Limit to 100 rows unless user specifies otherwise
-Always filter completed work: status = 'completed' (orders, lowercase!) or shipmentStatus = 'Complete' (otp_reports)
+For revenue/profit queries on orders table: status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)
+For other queries: status = 'completed' (orders, lowercase) or shipmentStatus = 'Complete' (otp_reports)
 
 ═══════════════════════════════════════════════════════════════════════════════
 VISUALIZATION
