@@ -37,7 +37,7 @@ SCHEMA REFERENCE - ONLY use columns listed here
 ├─ scheduledPickupTime, actualPickupTime (pickup dates)
 ├─ scheduledDropoffTime, actualDropoffTime (delivery dates)
 ├─ ⚠️ status = 'completed' (lowercase, not 'Complete')
-└─ ⚠️ Dates are ISO 8601 format: '2024-11-14T15:15-06:00' → use DATE(field)
+└─ ⚠️ Dates are ISO 8601 format: '2024-11-14T15:15-06:00' → use SUBSTRING(field, 1, 10) for date comparisons
 
 `otp_reports` table:
 ├─ orderCode, warpId, clientName, carrierName
@@ -88,7 +88,8 @@ DATE HANDLING
 
 For `orders` table:
 - scheduledPickupTime, actualPickupTime, scheduledDropoffTime, actualDropoffTime
-- Format: ISO 8601 (e.g., '2024-11-14T15:15-06:00') → use DATE(field) for date comparisons
+- Format: ISO 8601 (e.g., '2024-11-14T15:15-06:00') → use SUBSTRING(field, 1, 10) for date comparisons
+- ⚠️ DO NOT use DATE() - it converts to UTC and shifts dates incorrectly!
 - ⚠️ For revenue/profit queries, use scheduledDropoffTime (scheduled delivery date)
 
 For `otp_reports` table:
@@ -166,12 +167,12 @@ SELECT
 FROM orders
 WHERE customerName IN ('DoorDash', 'VFC - (DoorDash)')
   AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0))
-  AND DATE(scheduledDropoffTime) >= '2026-01-01'
-  AND DATE(scheduledDropoffTime) <= '2026-01-04'
+  AND SUBSTRING(scheduledDropoffTime, 1, 10) >= '2026-01-01'
+  AND SUBSTRING(scheduledDropoffTime, 1, 10) <= '2026-01-04'
 GROUP BY customerName;
 ```
 ⚠️ Note: The filter includes TONU charges (canceled orders with accessorialRevenue > 0)
-⚠️ Note: Use DATE() for ISO 8601 dates in orders table, and scheduledDropoffTime for delivery date
+⚠️ Note: Use SUBSTRING(field, 1, 10) for ISO 8601 dates (NOT DATE() - it converts to UTC incorrectly)
 
 Q: "How many shipments did CookUnity have in January?"
 A: Use otp_reports with mainShipment = 'YES':
