@@ -33,10 +33,11 @@ SCHEMA REFERENCE - ONLY use columns listed here
 `orders` table:
 ├─ code, customerName, status (values: 'completed', 'canceled', 'created', 'inProgress')
 ├─ revenueAllocation, costAllocation (for revenue/cost - DECIMAL)
+├─ accessorialRevenue (for TONU identification - DECIMAL)
 ├─ scheduledPickupTime, actualPickupTime (pickup dates)
 ├─ scheduledDropoffTime, actualDropoffTime (delivery dates)
 ├─ ⚠️ status = 'completed' (lowercase, not 'Complete')
-└─ ⚠️ Dates are ISO 8601 format: '2024-11-14T15:15-06:00' → use DATE(scheduledPickupTime)
+└─ ⚠️ Dates are ISO 8601 format: '2024-11-14T15:15-06:00' → use DATE(field)
 
 `otp_reports` table:
 ├─ orderCode, warpId, clientName, carrierName
@@ -56,8 +57,10 @@ DECISION TREE - Which Table & Logic to Use
 ┌─ User asks about REVENUE, COST, or PROFIT?
 │  └─ Use `orders` table
 │     └─ SUM(revenueAllocation), SUM(costAllocation)
-│     └─ Filter: status = 'completed' (lowercase!)
+│     └─ Filter: status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)
+│     └─ ⚠️ The second condition captures TONU (Truck Ordered Not Used) charges
 │     └─ ⚠️ DO NOT use profitNumber column - calculate profit as revenue - cost
+│     └─ ⚠️ For date filtering, use scheduledDropoffTime (delivery date) to match company reports
 
 ┌─ User asks about COST BY CARRIER?
 │  └─ Use `routes` table
@@ -85,7 +88,8 @@ DATE HANDLING
 
 For `orders` table:
 - scheduledPickupTime, actualPickupTime, scheduledDropoffTime, actualDropoffTime
-- Format: 'MM/DD/YYYY HH:MM:SS' → STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
+- Format: ISO 8601 (e.g., '2024-11-14T15:15-06:00') → use DATE(field) for date comparisons
+- ⚠️ For revenue/profit queries, use scheduledDropoffTime (scheduled delivery date)
 
 For `otp_reports` table:
 - pickWindowFrom (scheduled pickup), pickTimeArrived (actual pickup)
@@ -151,21 +155,22 @@ WHERE customerName = 'DoorDash' AND status = 'completed';
 ```
 
 Q: "What's profit from DoorDash from Jan 1-4 2026?"
-A: Use orders table with scheduledPickupTime for date filtering:
+A: Use orders table with scheduledDropoffTime (delivery date) for date filtering:
 ```sql
-SELECT 
+SELECT
     customerName,
     SUM(revenueAllocation) as total_revenue,
     SUM(costAllocation) as total_cost,
     SUM(revenueAllocation - costAllocation) as total_profit
 FROM orders
 WHERE customerName IN ('DoorDash', 'VFC - (DoorDash)')
-  AND status = 'completed'
-  AND DATE(scheduledPickupTime) >= '2026-01-01'
-  AND DATE(scheduledPickupTime) <= '2026-01-04'
+  AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0))
+  AND DATE(scheduledDropoffTime) >= '2026-01-01'
+  AND DATE(scheduledDropoffTime) <= '2026-01-04'
 GROUP BY customerName;
 ```
-⚠️ Note: status = 'completed' (lowercase!) and use DATE() for ISO 8601 dates
+⚠️ Note: The filter includes TONU charges (canceled orders with accessorialRevenue > 0)
+⚠️ Note: Use DATE() for ISO 8601 dates in orders table, and scheduledDropoffTime for delivery date
 
 Q: "How many shipments did CookUnity have in January?"
 A: Use otp_reports with mainShipment = 'YES':
