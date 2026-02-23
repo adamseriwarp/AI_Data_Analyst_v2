@@ -4,6 +4,88 @@ This document provides the AI Data Analyst with verified business logic for answ
 
 ---
 
+## 0. Quick Reference (USE THIS FIRST)
+
+### Schema - ONLY use columns listed here
+
+**`orders` table:**
+- `code`, `customerName`, `status` (values: 'completed', 'canceled', 'created', 'inProgress')
+- `revenueAllocation`, `costAllocation` (for revenue/cost - DECIMAL)
+- `accessorialRevenue` (for TONU identification - DECIMAL)
+- `isCrossDock` (1 = cross-dock, 0 = not cross-dock, NULL = unknown)
+- `scheduledPickupTime`, `actualPickupTime` (pickup dates)
+- `scheduledDropoffTime`, `actualDropoffTime` (delivery dates)
+- ⚠️ status = 'completed' (lowercase, not 'Complete')
+- ⚠️ Dates are ISO 8601 format: '2024-11-14T15:15-06:00' → use SUBSTRING(field, 1, 10) for date comparisons
+
+**`otp_reports` table:**
+- `orderCode`, `warpId`, `clientName`, `carrierName`
+- `mainShipment` ('YES' or 'NO'), `shipmentStatus`
+- `pickWindowFrom`, `pickTimeArrived` (pickup dates)
+- `dropWindowFrom`, `dropTimeArrived` (delivery dates)
+- `revenueAllocationNumber`, `costAllocationNumber` (⚠️ unreliable - use orders table)
+
+**`routes` table:**
+- `routeId`, `carrierName`, `costAllocation`
+- ⚠️ costAllocation is VARCHAR - use CAST(costAllocation AS DECIMAL(10,2))
+
+### Decision Tree - Which Table & Logic to Use
+
+**REVENUE, COST, or PROFIT?**
+→ Use `orders` table
+→ SUM(revenueAllocation), SUM(costAllocation)
+→ Filter: `status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)`
+→ ⚠️ The second condition captures TONU (Truck Ordered Not Used) charges
+→ ⚠️ DO NOT use profitNumber column - calculate profit as revenue - cost
+→ ⚠️ For date filtering, use delivery date CASE logic (see Date Handling below)
+
+**COST BY CARRIER?**
+→ Use `routes` table
+→ SUM(CAST(costAllocation AS DECIMAL(10,2)))
+→ Filter: carrierName IS NOT NULL
+
+**SHIPMENT COUNT for a CUSTOMER?**
+→ Use `otp_reports` table with mainShipment = 'YES'
+→ COUNT(*) WHERE mainShipment = 'YES' AND shipmentStatus = 'Complete'
+
+**OTP/OTD for a CUSTOMER?**
+→ Use `otp_reports` table with mainShipment = 'YES'
+→ OTP: pickTimeArrived <= pickWindowFrom
+→ OTD: dropTimeArrived <= dropWindowFrom
+
+**OTP/OTD for a CARRIER?**
+→ Use `otp_reports` table with mainShipment = 'NO'
+→ If order has NO rows → use them (carrier-specific performance)
+→ If order has only YES row → use that as fallback
+→ Same OTP/OTD formulas as above
+
+### Date Handling
+
+**For `orders` table (revenue/profit queries):**
+- Format: ISO 8601 (e.g., '2024-11-14T15:15-06:00') → use SUBSTRING(field, 1, 10)
+- ⚠️ DO NOT use DATE() - it converts to UTC and shifts dates incorrectly!
+- ⚠️ For revenue/profit queries, DO NOT ask user - use this CASE logic:
+  - If isCrossDock = 0 AND actualDropoffTime exists → use actualDropoffTime
+  - Otherwise → use scheduledDropoffTime
+
+```sql
+CASE
+  WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+    THEN SUBSTRING(actualDropoffTime, 1, 10)
+  ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+END
+```
+
+**For `otp_reports` table (shipment count, OTP/OTD queries):**
+- Format: 'MM/DD/YYYY HH:MM:SS' → use STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
+- ⚠️ ASK user which date field to use:
+  1. Scheduled pickup date (pickWindowFrom)
+  2. Actual pickup date (pickTimeArrived)
+  3. Scheduled delivery date (dropWindowFrom)
+  4. Actual delivery date (dropTimeArrived)
+
+---
+
 ## 1. Overview
 
 **Database**: `datahub` (MySQL)
@@ -369,7 +451,77 @@ GROUP BY carrierName;
 
 ---
 
-## 5. Warnings & Gotchas
+## 5. SQL Examples
+
+### Revenue Query (no date filter)
+```sql
+SELECT SUM(revenueAllocation) as total_revenue
+FROM orders
+WHERE customerName = 'DoorDash'
+  AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0));
+```
+
+### Profit Query with Date Range (cross-dock logic)
+```sql
+SELECT
+    customerName,
+    SUM(revenueAllocation) as total_revenue,
+    SUM(costAllocation) as total_cost,
+    SUM(revenueAllocation - costAllocation) as total_profit
+FROM orders
+WHERE customerName IN ('DoorDash', 'VFC - (DoorDash)')
+  AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0))
+  AND (
+    CASE
+      WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+        THEN SUBSTRING(actualDropoffTime, 1, 10)
+      ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+    END
+  ) >= '2026-01-01'
+  AND (
+    CASE
+      WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+        THEN SUBSTRING(actualDropoffTime, 1, 10)
+      ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+    END
+  ) <= '2026-01-04'
+GROUP BY customerName;
+```
+⚠️ Note: The filter includes TONU charges (canceled orders with accessorialRevenue > 0)
+⚠️ Note: Delivery date logic: cross-dock orders use scheduledDropoffTime, non-cross-dock use actualDropoffTime
+
+### Shipment Count Query
+```sql
+SELECT COUNT(*) as shipments
+FROM otp_reports
+WHERE clientName = 'CookUnity Inc'
+  AND mainShipment = 'YES'
+  AND shipmentStatus = 'Complete'
+  AND STR_TO_DATE(pickWindowFrom, '%m/%d/%Y %H:%i:%s') >= '2026-01-01'
+  AND STR_TO_DATE(pickWindowFrom, '%m/%d/%Y %H:%i:%s') < '2026-02-01';
+```
+
+### OTP Rate Query
+```sql
+SELECT
+    COUNT(*) as total_pickups,
+    SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s')
+                  <= STR_TO_DATE(pickWindowFrom, '%m/%d/%Y %H:%i:%s')
+             THEN 1 ELSE 0 END) as on_time,
+    ROUND(100.0 * SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s')
+                               <= STR_TO_DATE(pickWindowFrom, '%m/%d/%Y %H:%i:%s')
+                          THEN 1 ELSE 0 END) / COUNT(*), 2) as otp_pct
+FROM otp_reports
+WHERE clientName = 'DoorDash'
+  AND mainShipment = 'YES'
+  AND shipmentStatus = 'Complete'
+  AND pickTimeArrived IS NOT NULL
+  AND pickWindowFrom IS NOT NULL;
+```
+
+---
+
+## 6. Warnings & Gotchas
 
 | Warning | Details |
 |---------|---------|
@@ -384,9 +536,9 @@ GROUP BY carrierName;
 
 ---
 
-## 6. Appendix
+## 7. Appendix
 
-### 6.1 Verification Notes
+### 7.1 Verification Notes
 
 **Revenue/Cost (Verified 2026-02-21)**:
 - Tested across LTL Direct, LTL Multi-leg, FTL Multidrop, FTL Multistop scenarios
