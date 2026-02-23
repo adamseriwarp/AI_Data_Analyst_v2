@@ -84,13 +84,19 @@ routes (route/load data)
 **Rule: ALWAYS use the `orders` table.**
 
 ```sql
-SELECT 
+SELECT
     code as orderCode,
     revenueAllocation as revenue,
     costAllocation as cost,
     revenueAllocation - costAllocation as profit
 FROM orders
+WHERE status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)
 ```
+
+**Status Filter (TONU):**
+- Use `status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)`
+- The second condition captures **TONU (Truck Ordered Not Used)** charges - canceled orders that still incur charges
+- ⚠️ Note: status values are **lowercase** ('completed', not 'Complete')
 
 **Why not use `otp_reports` for revenue/cost?**
 
@@ -104,13 +110,13 @@ The `orders` table has **one authoritative value per order**, regardless of:
 
 **Example - Revenue by Customer:**
 ```sql
-SELECT 
+SELECT
     customerName,
     SUM(revenueAllocation) as total_revenue,
     SUM(costAllocation) as total_cost,
     SUM(revenueAllocation - costAllocation) as total_profit
 FROM orders
-WHERE status = 'Complete'  -- or appropriate status filter
+WHERE status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0)
 GROUP BY customerName
 ORDER BY total_revenue DESC;
 ```
@@ -147,23 +153,68 @@ ORDER BY total_cost DESC;
 
 ### 2.3 Date Filtering
 
-**Rule:** Always ask the user which date field to filter on.
+#### For `orders` table (Revenue/Profit queries):
 
-There are three date options for filtering shipments:
+**Rule:** Use the **delivery date** determined by cross-dock logic (DO NOT ask the user):
+
+| isCrossDock | actualDropoffTime | Date Field to Use |
+|-------------|-------------------|-------------------|
+| 1 or NULL | Any | `scheduledDropoffTime` |
+| 0 | Has value | `actualDropoffTime` |
+| 0 | Empty/NULL | `scheduledDropoffTime` |
+
+**CASE expression for date filtering:**
+```sql
+CASE
+  WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+    THEN SUBSTRING(actualDropoffTime, 1, 10)
+  ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+END
+```
+
+**⚠️ Important:**
+- Dates in `orders` table are ISO 8601 format (e.g., `2024-11-14T15:15-06:00`)
+- Use `SUBSTRING(field, 1, 10)` to extract the date portion
+- **DO NOT use `DATE()`** - it converts to UTC first, causing late-evening orders to shift to the next day
+
+**Example - Profit with date range:**
+```sql
+SELECT
+    customerName,
+    SUM(revenueAllocation) as total_revenue,
+    SUM(costAllocation) as total_cost,
+    SUM(revenueAllocation - costAllocation) as total_profit
+FROM orders
+WHERE customerName = 'DoorDash'
+  AND (status = 'completed' OR (status = 'canceled' AND accessorialRevenue > 0))
+  AND (
+    CASE
+      WHEN isCrossDock = 0 AND actualDropoffTime IS NOT NULL AND actualDropoffTime != ''
+        THEN SUBSTRING(actualDropoffTime, 1, 10)
+      ELSE SUBSTRING(scheduledDropoffTime, 1, 10)
+    END
+  ) BETWEEN '2026-01-01' AND '2026-01-04';
+```
+
+#### For `otp_reports` table (Shipment Count, OTP/OTD queries):
+
+**Rule:** Ask the user which date field to filter on.
 
 | Field | Meaning | Use When |
 |-------|---------|----------|
 | `pickWindowFrom` | When pickup was **scheduled** | Analyzing planned/booked shipments |
 | `pickTimeArrived` | When driver **arrived** at pickup | Analyzing actual pickup timing |
-| `pickTimeDeparted` | When driver **departed** from pickup | Analyzing when shipments left origin |
+| `dropWindowFrom` | When delivery was **scheduled** | Analyzing planned delivery dates |
+| `dropTimeArrived` | When driver **arrived** at delivery | Analyzing actual delivery timing |
 
 **Example prompt to user:**
-> "How would you like to filter by date?
-> 1. **Scheduled pickup date** (when the pickup was planned)
-> 2. **Actual arrival date** (when the driver arrived)
-> 3. **Actual departure date** (when the driver left with the shipment)"
+> "Which date field should I use?
+> 1. Scheduled pickup date
+> 2. Actual pickup date
+> 3. Scheduled delivery date
+> 4. Actual delivery date"
 
-**Note:** These fields are in `otp_reports` table. Use `STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')` for date parsing.
+**Note:** Use `STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')` for date parsing in `otp_reports`.
 
 ---
 
@@ -304,7 +355,13 @@ GROUP BY carrierName;
 | `customerName` | Customer/client name |
 | `revenueAllocation` | Order-level revenue (source of truth) |
 | `costAllocation` | Order-level cost (source of truth) |
-| `status` | Order status |
+| `accessorialRevenue` | TONU charges (Truck Ordered Not Used) |
+| `status` | Order status ('completed', 'canceled', 'created', 'inProgress') |
+| `isCrossDock` | Cross-dock flag (1 = cross-dock, 0 = not cross-dock, NULL = unknown) |
+| `scheduledPickupTime` | Scheduled pickup date (ISO 8601 format) |
+| `actualPickupTime` | Actual pickup date (ISO 8601 format) |
+| `scheduledDropoffTime` | Scheduled delivery date (ISO 8601 format) |
+| `actualDropoffTime` | Actual delivery date (ISO 8601 format) |
 
 ### 4.2 otp_reports Table
 
@@ -317,8 +374,13 @@ GROUP BY carrierName;
 | Warning | Details |
 |---------|---------|
 | **profitNumber Column** | DO NOT USE - has data quality issues. Calculate as `revenueAllocation - costAllocation` |
-| **Date Format** | Most dates are `MM/DD/YYYY HH:MM:SS`. Use `STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')` |
+| **orders Date Format** | ISO 8601 (e.g., `2024-11-14T15:15-06:00`). Use `SUBSTRING(field, 1, 10)` to extract date |
+| **otp_reports Date Format** | `MM/DD/YYYY HH:MM:SS`. Use `STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')` |
+| **DATE() Function** | DO NOT USE on orders table - converts to UTC first, causing late-evening orders to shift to next day |
+| **TONU Charges** | Include canceled orders with `accessorialRevenue > 0` in revenue/profit calculations |
+| **Cross-Dock Date Logic** | Non-cross-dock orders use actualDropoffTime; cross-dock orders use scheduledDropoffTime |
 | **otp_reports Revenue** | Inconsistent across clients - use `orders` table instead |
+| **Status Values** | `orders` table uses lowercase ('completed', 'canceled'), `otp_reports` uses title case ('Complete') |
 
 ---
 
