@@ -92,7 +92,9 @@ END
 
 **For `otp_reports` table (shipment count, OTP/OTD queries):**
 - Format: 'MM/DD/YYYY HH:MM:SS' → use STR_TO_DATE(field, '%m/%d/%Y %H:%i:%s')
-- ⚠️ ASK user which date field to use:
+- **OTP queries:** Default to filtering by `pickWindowFrom` (scheduled pickup date) — do NOT ask the user
+- **OTD queries:** Default to filtering by `dropWindowFrom` (scheduled delivery date) — do NOT ask the user
+- **Other queries (shipment count, etc.):** ASK user which date field to use:
   1. Scheduled pickup date (pickWindowFrom)
   2. Actual pickup date (pickTimeArrived)
   3. Scheduled delivery date (dropWindowFrom)
@@ -294,7 +296,11 @@ WHERE customerName = 'DoorDash'
 
 #### For `otp_reports` table (Shipment Count, OTP/OTD queries):
 
-**Rule:** Ask the user which date field to filter on.
+**OTP/OTD queries — use defaults, do NOT ask the user:**
+- **OTP:** Filter date range by `pickWindowFrom` (scheduled pickup date)
+- **OTD:** Filter date range by `dropWindowFrom` (scheduled delivery date)
+
+**Other queries (shipment count, etc.) — ask the user which date field to filter on:**
 
 | Field | Meaning | Use When |
 |-------|---------|----------|
@@ -303,7 +309,7 @@ WHERE customerName = 'DoorDash'
 | `dropWindowFrom` | When delivery was **scheduled** | Analyzing planned delivery dates |
 | `dropTimeArrived` | When driver **arrived** at delivery | Analyzing actual delivery timing |
 
-**Example prompt to user:**
+**Example prompt to user (for non-OTP/OTD queries only):**
 > "Which date field should I use?
 > 1. Scheduled pickup date
 > 2. Actual pickup date
