@@ -64,8 +64,8 @@ This document provides the AI Data Analyst with verified business logic for answ
 
 **OTP/OTD for a CUSTOMER?**
 → Use `otp_reports` table with mainShipment = 'YES'
-→ OTP: pickTimeArrived <= pickWindowTo
-→ OTD: dropTimeArrived <= dropWindowTo
+→ OTP: pickTimeArrived <= pickWindowTo (if pickTimeArrived is NULL/empty → 'No Pickup Data')
+→ OTD: dropTimeArrived <= dropWindowTo (if dropTimeArrived is NULL/empty → 'No Delivery Data')
 
 **OTP/OTD for a CARRIER?**
 → Use `otp_reports` table with mainShipment = 'NO'
@@ -385,9 +385,23 @@ Customers care about first pickup and final delivery, not intermediate legs. YES
 
 **Handling edge cases:**
 
-1. **Missing `pickTimeArrived`**: Exclude from OTP calculation, but report these shipments separately
-2. **Missing `dropTimeArrived`**: Exclude from OTD calculation, but report these shipments separately
+1. **Missing `pickTimeArrived`**: When listing per-shipment OTP status, label as **'No Pickup Data'** (NOT 'On Time' or 'Late'). For aggregate OTP rate calculations, exclude these rows.
+2. **Missing `dropTimeArrived`**: When listing per-shipment OTD status, label as **'No Delivery Data'** (NOT 'On Time' or 'Late'). For aggregate OTD rate calculations, exclude these rows.
 3. **Orders with 0 YES rows**: Use fallback - first leg (earliest `pickTimeArrived`) for OTP, last leg (latest `dropTimeArrived`) for OTD
+
+**Per-shipment OTP/OTD status CASE WHEN pattern:**
+```sql
+CASE
+  WHEN pickTimeArrived IS NULL OR pickTimeArrived = '' THEN 'No Pickup Data'
+  WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 'On Time'
+  ELSE 'Late'
+END as otp_status,
+CASE
+  WHEN dropTimeArrived IS NULL OR dropTimeArrived = '' THEN 'No Delivery Data'
+  WHEN STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 'On Time'
+  ELSE 'Late'
+END as otd_status
+```
 
 ### 3.7 OTP/OTD for Carriers
 
