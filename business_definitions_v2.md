@@ -372,8 +372,8 @@ The `orders` table has one row per order, but `otp_reports` captures each indivi
 SELECT
     clientName,
     COUNT(*) as total_shipments,
-    SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_pickups,
-    SUM(CASE WHEN STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_deliveries
+    SUM(CASE WHEN pickTimeArrived IS NOT NULL AND pickTimeArrived != '' AND STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_pickups,
+    SUM(CASE WHEN dropTimeArrived IS NOT NULL AND dropTimeArrived != '' AND STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_deliveries
 FROM otp_reports
 WHERE mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
@@ -387,8 +387,8 @@ Customers care about first pickup and final delivery, not intermediate legs. YES
 
 **Handling edge cases:**
 
-1. **Missing `pickTimeArrived`**: When listing per-shipment OTP status, label as **'No Pickup Data'** (NOT 'On Time' or 'Late'). For aggregate OTP rate calculations, exclude these rows.
-2. **Missing `dropTimeArrived`**: When listing per-shipment OTD status, label as **'No Delivery Data'** (NOT 'On Time' or 'Late'). For aggregate OTD rate calculations, exclude these rows.
+1. **Missing `pickTimeArrived`** (NULL **or empty string `''`**): When listing per-shipment OTP status, label as **'No Pickup Data'** (NOT 'On Time' or 'Late'). For aggregate OTP rate calculations, exclude these rows. ⚠️ Always check BOTH `IS NULL` and `= ''` — the field is often an empty string, not NULL. An empty string passed to `STR_TO_DATE` returns NULL, and `NULL <= date` can incorrectly evaluate as true, inflating on-time counts.
+2. **Missing `dropTimeArrived`** (NULL **or empty string `''`**): When listing per-shipment OTD status, label as **'No Delivery Data'** (NOT 'On Time' or 'Late'). For aggregate OTD rate calculations, exclude these rows. Same empty string warning as above.
 3. **Orders with 0 YES rows**: Use fallback - first leg (earliest `pickTimeArrived`) for OTP, last leg (latest `dropTimeArrived`) for OTD
 
 **Per-shipment OTP/OTD status CASE WHEN pattern:**
@@ -418,8 +418,8 @@ END as otd_status
 SELECT
     carrierName,
     COUNT(*) as total_legs,
-    SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_pickups,
-    SUM(CASE WHEN STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_deliveries
+    SUM(CASE WHEN pickTimeArrived IS NOT NULL AND pickTimeArrived != '' AND STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_pickups,
+    SUM(CASE WHEN dropTimeArrived IS NOT NULL AND dropTimeArrived != '' AND STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_deliveries
 FROM otp_reports
 WHERE mainShipment = 'NO'
   AND shipmentStatus = 'Complete'
@@ -441,8 +441,8 @@ For orders with 0 NO rows, use YES rows instead:
 SELECT
     carrierName,
     COUNT(*) as total_shipments,
-    SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_pickups,
-    SUM(CASE WHEN STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_deliveries
+    SUM(CASE WHEN pickTimeArrived IS NOT NULL AND pickTimeArrived != '' AND STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_pickups,
+    SUM(CASE WHEN dropTimeArrived IS NOT NULL AND dropTimeArrived != '' AND STR_TO_DATE(dropTimeArrived, '%m/%d/%Y %H:%i:%s') <= STR_TO_DATE(dropWindowTo, '%m/%d/%Y %H:%i:%s') THEN 1 ELSE 0 END) as on_time_deliveries
 FROM otp_reports
 WHERE mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
@@ -544,10 +544,10 @@ WHERE clientName = 'CookUnity Inc'
 ```sql
 SELECT
     COUNT(*) as total_pickups,
-    SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s')
+    SUM(CASE WHEN pickTimeArrived IS NOT NULL AND pickTimeArrived != '' AND STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s')
                   <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s')
              THEN 1 ELSE 0 END) as on_time,
-    ROUND(100.0 * SUM(CASE WHEN STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s')
+    ROUND(100.0 * SUM(CASE WHEN pickTimeArrived IS NOT NULL AND pickTimeArrived != '' AND STR_TO_DATE(pickTimeArrived, '%m/%d/%Y %H:%i:%s')
                                <= STR_TO_DATE(pickWindowTo, '%m/%d/%Y %H:%i:%s')
                           THEN 1 ELSE 0 END) / COUNT(*), 2) as otp_pct
 FROM otp_reports
@@ -555,7 +555,7 @@ WHERE clientName = 'DoorDash'
   AND mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
   AND (equipment != 'Storage' OR equipment IS NULL)
-  AND pickTimeArrived IS NOT NULL
+  AND pickTimeArrived IS NOT NULL AND pickTimeArrived != ''
   AND pickWindowTo IS NOT NULL;
 ```
 
