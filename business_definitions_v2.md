@@ -64,6 +64,7 @@ This document provides the AI Data Analyst with verified business logic for answ
 
 **OTP/OTD for a CUSTOMER?**
 → Use `otp_reports` table with mainShipment = 'YES'
+→ Exclude storage/warehouse orders: `equipment != 'Storage'`
 → OTP: pickTimeArrived <= pickWindowTo (if pickTimeArrived is NULL/empty → 'No Pickup Data')
 → OTD: dropTimeArrived <= dropWindowTo (if dropTimeArrived is NULL/empty → 'No Delivery Data')
 
@@ -167,7 +168,7 @@ routes (route/load data)
 
 **Shipment Classification:**
 - `mainShipment` (YES/NO), `shipmentType`, `shipmentStatus`, `loadStatus`
-- `equipment`, `startMarket`, `endMarket`
+- `equipment` (⚠️ `'Storage'` = warehouse operations, NOT real shipments — exclude from OTP/OTD), `startMarket`, `endMarket`
 
 **Time/Date:**
 - `createdAt`, `revenueDate`, `revenueMonth`
@@ -361,7 +362,7 @@ The `orders` table has one row per order, but `otp_reports` captures each indivi
 
 ### 3.6 OTP/OTD for Customers
 
-**Rule:** Use `otp_reports` table with `mainShipment = 'YES'` rows.
+**Rule:** Use `otp_reports` table with `mainShipment = 'YES'` rows. **Always exclude storage/warehouse orders** (`equipment != 'Storage'`) — these are warehouse operations (pallet storage, inventory counts, rework) with 0 miles and no actual pickup/delivery.
 
 **Definitions:**
 - **OTP (On Time Pickup):** `pickTimeArrived <= pickWindowTo`
@@ -376,6 +377,7 @@ SELECT
 FROM otp_reports
 WHERE mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
+  AND (equipment != 'Storage' OR equipment IS NULL)
 GROUP BY clientName;
 ```
 
@@ -421,6 +423,7 @@ SELECT
 FROM otp_reports
 WHERE mainShipment = 'NO'
   AND shipmentStatus = 'Complete'
+  AND (equipment != 'Storage' OR equipment IS NULL)
   AND carrierName IS NOT NULL AND carrierName != ''
 GROUP BY carrierName;
 ```
@@ -443,6 +446,7 @@ SELECT
 FROM otp_reports
 WHERE mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
+  AND (equipment != 'Storage' OR equipment IS NULL)
   AND carrierName IS NOT NULL AND carrierName != ''
   AND orderCode IN (
       SELECT orderCode FROM otp_reports
@@ -531,6 +535,7 @@ FROM otp_reports
 WHERE clientName = 'CookUnity Inc'
   AND mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
+  AND (equipment != 'Storage' OR equipment IS NULL)
   AND STR_TO_DATE(pickWindowFrom, '%m/%d/%Y %H:%i:%s') >= '2026-01-01'
   AND STR_TO_DATE(pickWindowFrom, '%m/%d/%Y %H:%i:%s') < '2026-02-01';
 ```
@@ -549,6 +554,7 @@ FROM otp_reports
 WHERE clientName = 'DoorDash'
   AND mainShipment = 'YES'
   AND shipmentStatus = 'Complete'
+  AND (equipment != 'Storage' OR equipment IS NULL)
   AND pickTimeArrived IS NOT NULL
   AND pickWindowTo IS NOT NULL;
 ```
