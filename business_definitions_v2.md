@@ -44,6 +44,20 @@ This document provides the AI Data Analyst with verified business logic for answ
 → SUM(CAST(costAllocation AS DECIMAL(10,2)))
 → Filter: carrierName IS NOT NULL
 
+**PALLET COUNT?** (LTL only - FTL is full truck, pallet count not relevant)
+→ Filter: `orders.shipmentType = 'LTL'`
+→ Filter: `otp_reports.mainShipment = 'YES'`
+→ Use `SUM(otp_reports.pieces)`
+
+**PARCEL COUNT?** (parcels only)
+→ Filter: `orders.shipmentType = 'PARCEL'`
+→ Filter: `otp_reports.mainShipment = 'YES'`
+→ Use `SUM(otp_reports.pieces)`
+
+**TOTAL QUANTITY?** (pallets + parcels)
+→ Filter: `otp_reports.mainShipment = 'YES'`
+→ Use `SUM(otp_reports.pieces)`
+
 **SHIPMENT COUNT for a CUSTOMER?**
 → Use `otp_reports` table with mainShipment = 'YES'
 → COUNT(*) WHERE mainShipment = 'YES' AND shipmentStatus = 'Complete'
@@ -518,6 +532,74 @@ WHERE clientName = 'DoorDash'
   AND pickTimeArrived IS NOT NULL
   AND pickWindowFrom IS NOT NULL;
 ```
+
+---
+
+## 5.5 Pallet / Parcel / Quantity Count
+
+**Key Field:** `orders.shipmentType` determines the order type:
+- `'LTL'` = Less Than Truckload (pallets)
+- `'FTL'` = Full Truckload (pallets)
+- `'PARCEL'` = Parcels
+
+**Counting Rule:** 
+```sql
+SUM(pieces) WHERE mainShipment = 'YES'
+```
+
+**Why this works:**
+- `mainShipment = 'YES'` rows represent actual customer shipments
+- `mainShipment = 'NO'` rows are carrier/internal legs (ignore for quantity)
+- SUM the pieces across all YES rows for the order
+
+---
+
+### Example - Total PALLETS for a customer:
+```sql
+SELECT 
+    o.customerName,
+    SUM(otp.pieces) as total_pallets
+FROM orders o
+JOIN otp_reports otp ON o.code = otp.orderCode
+WHERE o.customerName = 'DoorDash'
+  AND o.shipmentType = 'LTL'  -- FTL is full truck, pallet count not relevant
+  AND otp.mainShipment = 'YES'
+  AND (o.status = 'completed' OR (o.status = 'canceled' AND o.accessorialRevenue > 0))
+GROUP BY o.customerName;
+```
+
+### Example - Total PARCELS for a customer:
+```sql
+SELECT 
+    o.customerName,
+    SUM(otp.pieces) as total_parcels
+FROM orders o
+JOIN otp_reports otp ON o.code = otp.orderCode
+WHERE o.customerName = 'DoorDash'
+  AND o.shipmentType = 'PARCEL'
+  AND otp.mainShipment = 'YES'
+  AND (o.status = 'completed' OR (o.status = 'canceled' AND o.accessorialRevenue > 0))
+GROUP BY o.customerName;
+```
+
+### Example - Cost per pallet:
+```sql
+SELECT 
+    o.customerName,
+    SUM(o.costAllocation) as total_cost,
+    SUM(otp.pieces) as total_pallets,
+    SUM(o.costAllocation) / SUM(otp.pieces) as cost_per_pallet
+FROM orders o
+JOIN otp_reports otp ON o.code = otp.orderCode
+WHERE o.customerName = 'DoorDash'
+  AND o.shipmentType = 'LTL'  -- FTL is full truck, pallet count not relevant
+  AND otp.mainShipment = 'YES'
+  AND (o.status = 'completed' OR (o.status = 'canceled' AND o.accessorialRevenue > 0))
+  AND otp.pieces > 0
+GROUP BY o.customerName;
+```
+
+**Warning:** Exclude orders with `pieces = 0` or `NULL` from per-unit calculations.
 
 ---
 
